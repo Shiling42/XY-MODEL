@@ -32,23 +32,23 @@ class XYSystem():
 
     def set_temperature(self,temperature):
         self.temperature = temperature;
-
+    
     def sweep(self):
-        delta = 0.5 #maximum cnange of theta
         beta = 1.0 / self.temperature
         idx = 0
-        for spin in self.spin_config:#one sweep in defined as N attempts of flip
+        for idx,item in enumerate(self.spin_config):#one sweep in defined as N attempts of flip
             #k = np.random.randint(0, N - 1)#randomly choose a spin
-            energy_i = -sum(np.cos(spin-self.spin_config[n]) for n in self.nbr[idx]) 
-            dtheta = delta * (np.random.random()*2-1)
-            spin_temp = spin + dtheta
+            energy_i = -sum(np.cos(self.spin_config[idx]-self.spin_config[n]) for n in self.nbr[idx]) 
+            dtheta = np.random.uniform(-np.pi,np.pi)
+            spin_temp = self.spin_config[idx] + dtheta
             energy_f = -sum(np.cos(spin_temp-self.spin_config[n]) for n in self.nbr[idx]) 
             delta_E = energy_f - energy_i
             if np.random.uniform(0.0, 1.0) < np.exp(-beta * delta_E):
-                spin += dtheta
+                self.spin_config[idx] += dtheta
             idx += 1
 
-    ## calculate the energy through the configuration  
+
+    ## calculate the energy of a given configuration  
     #  input: S/spin configuration in list
     #         H/external field, defult 0
     def get_energy(self):
@@ -58,63 +58,45 @@ class XYSystem():
             energy_[idx] = -sum(np.cos(spin-self.spin_config[n]) for n in self.nbr[idx])#nearst neighbor of kth spin
             idx +=1
         return energy_
-
-    ## thermodynamic quantities of 2D ising using Metropolis algorithm
-    # input: T/temperature
-    #        S/spin configuration
-    #        nsweeps/number of sweps
-    #        pr/just ingore it
-    def thermo(self,nsweeps=200,temperature=None,H=None,pr=None):
+        
+    ## Let the system evolve to equilibrium state
+    def equilibrate(self,max_nsweeps=int(2e3),temperature=None,H=None):
         if temperature != None:
-            self.set_temperature(temperature)
-        dic_thermal = {}
-        dic_thermal['energy']=[]
+            temperature = self.set_temperature(temperature)
+        dic_thermal_t = {}
+        dic_thermal_t['energy']=[]
         beta = 1.0/self.temperature
-        for k in list(range(nsweeps)):
+        energy_temp = 0
+        for k in list(range(max_nsweeps)):
             self.sweep()     
             #list_M.append(np.abs(np.sum(S)/N))
-            dic_thermal['energy'] += [np.sum(self.get_energy())]
-        energy=sum(dic_thermal['energy'])/nsweeps
-        #magnetization=np.sum(list_M)/nsweeps
-        energy2=sum(np.power(dic_thermal['energy'],2))/nsweeps
-        #magetization2=np.sum(np.power(list_M,2))/nsweeps
-        #chi=(magetization2-magnetization**2)*beta
+            energy = np.sum(self.get_energy())/self.num_spins
+            dic_thermal_t['energy'] += [energy]
+            #print( abs(energy-energy_temp)/abs(energy))
+            if abs(energy-energy_temp)/abs(energy)<1e-5:
+                break
+            energy_temp = energy
+        energy=sum(dic_thermal_t['energy'])/max_nsweeps
+        energy2=sum(np.power(dic_thermal_t['energy'],2))/max_nsweeps
         Cv=(energy2-energy**2)*beta**2
-        #return S,Energy,magnetization,chi,Cv
+
         return energy,Cv
 
     ## To see thermoquantities evolve as we cooling the systems down
-    # input: L/size of grid
+    # input: T_inital: initial tempreature
+    #        T_final: final temperature
     #        sample/'log' or 'lin',mean linear sampled T or log sampled( centered at critical point)
     def cooling(self,T_init=2.5,T_final=0.01):
-        nsweeps=400
         # initialize spins. Orientations are taken from 0 - 2pi randomly.
         #initialize spin configuration  
         dic_thermal = {}
-        dic_thermal['temperature']=list(np.linspace(T_init,T_final,50))
+        dic_thermal['temperature']=list(np.linspace(T_init,T_final,40))
         dic_thermal['energy']=[]
         dic_thermal['Cv']=[]
         for T in dic_thermal['temperature']:
-            #nsweep = 300 if t > 0.8 else 
-            energy_t,Cv_t=self.thermo(nsweeps,T)
-            #S,energy_t,magnetization_t,chi_t,Cv_t=thermo(t,S,nsweeps)
+            energy_t,Cv_t=self.equilibrate(temperature=T)
             dic_thermal['energy'] += [energy_t]
-            #list_M.append(magnetization_t)
             dic_thermal['Cv'] += [Cv_t]
-            #list_chi.append(chi_t)
-        #plt.plot(list_T,list_E)
-        '''
-        print(sample)
-        plt.plot(list_T,list_chi,'.')
-        plt.ylabel(r'$\chi$')
-        plt.xlabel('T')
-        plt.show()  
-        plt.plot(list_T,list_M,'.')
-        plt.ylabel(r'$\langle |m|\rangle$')
-        plt.xlabel('T')
-        plt.show()
-        return list_E,list_M,list_Cv,list_chi,list_T
-        '''
         plt.plot(dic_thermal['temperature'],dic_thermal['Cv'],'.')
         plt.ylabel(r'$C_v$')
         plt.xlabel('T')
@@ -140,23 +122,13 @@ class XYSystem():
         X, Y = np.meshgrid(np.arange(0,self.width ),np.arange(0, self.width))
         U = np.cos(config_matrix )
         V = np.sin(config_matrix )
-        plt.figure(1,figsize=(8,8), dpi=100)
+        plt.figure(figsize=(8,8), dpi=100)
         #plt.title('Arrows scale with plot width, not view')
         Q = plt.quiver(X, Y, U, V, units='width')
-        qk = plt.quiverkey(Q, 0.1, 0.1, 1, r'$2 \frac{m}{s}$', labelpos='E',
+        qk = plt.quiverkey(Q, 0.1, 0.1, 1, r'$spin$', labelpos='E',
                     coordinates='figure')
-        plt.title('T=%.2f'%self.temperature+',Size='+str(self.width))
+        plt.title('T=%.2f'%self.temperature+', #spins='+str(self.width)+'x'+str(self.width))
+        plt.axis('off')
         plt.show()
 
 
-    def visulizeXY(self):
-        nsweeps=1000
-        stime=list(range(nsweeps))
-        for k in stime:
-            self.sweep()
-        self.visulize()
-        
-    
-if __name__ == '__main__':
-    system1=XYSystem()
-    system1.cooling()
